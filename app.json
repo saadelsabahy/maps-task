@@ -18,6 +18,10 @@
       "assetBundlePatterns": ["**/*"],
       "ios": {
          "supportsTablet": true
+      },
+      "android": {
+         "package": "com.track.trackingApp",
+         "versionCode": 1
       }
    }
 }

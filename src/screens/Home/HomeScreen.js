@@ -1,4 +1,4 @@
-import React, { useEffect, useReducer } from 'react';
+import React, { useEffect, useContext, useRef, useState } from 'react';
 import {
    View,
    Text,
@@ -6,28 +6,41 @@ import {
    Dimensions,
    Platform,
    ActivityIndicator,
+   UIManager,
+   LayoutAnimation,
+   Animated,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline, AnimatedRegion } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Permissions from 'expo-permissions';
-import Constants from 'expo-constants';
-import { homeReducer, initialState } from './HomeReducer';
-import { GET_PERMISSION_ERROR, ASSIGN_LOCATION } from './types';
+import { Store } from '../../Context/reducer/ContextStore';
+import {
+   GET_PERMISSION_ERROR,
+   ASSIGN_LOCATION,
+} from '../../Context/reducer/types';
 import { SearchInput } from '../../components/SearchInput';
 
 const { width, height } = Dimensions.get('window');
 const ASPECT_RETIO = width / height;
-const latitudeDelta = 0.022 * ASPECT_RETIO;
-const longitudeDelta = 0.0421 * ASPECT_RETIO;
-const Home = ({ navigation }) => {
-   const [homeState, dispatch] = useReducer(homeReducer, initialState);
-   const {
-      region,
-      region: { longitude, latitude },
-   } = homeState;
+const latitudeDelta = 0.9968723;
+const longitudeDelta = latitudeDelta * ASPECT_RETIO;
+const GEOLOCATION_OPTIONS = {
+   enableHighAccuracy: true,
+   timeout: 20000,
+   maximumAge: 1000,
+};
+
+const Home = ({ route, navigation }) => {
+   const { appState, dispatch } = useContext(Store);
+   const { initialRegion, searchedEndRegion, searchedStartRegion } = appState;
+   const markerRef = useRef();
+   const [Coordinate, setCoordinate] = useState(new AnimatedRegion({}));
 
    useEffect(() => {
       getLocationAsync();
+      return () => {
+         getLocationAsync().remove();
+      };
    }, []);
 
    const getLocationAsync = async () => {
@@ -36,21 +49,30 @@ const Home = ({ navigation }) => {
          dispatch({ type: GET_PERMISSION_ERROR });
       }
 
-      let {
-         coords: { latitude, longitude },
-      } = await Location.getCurrentPositionAsync({});
-      console.log(latitude, longitude);
+      await Location.watchPositionAsync(GEOLOCATION_OPTIONS, locationChanged);
+   };
 
+   const locationChanged = ({ coords: { latitude, longitude } }) => {
+      const newRegion = {
+         longitude,
+         latitude,
+         longitudeDelta,
+         latitudeDelta,
+      };
+      setCoordinate(newRegion);
+      if (newRegion !== Coordinate) {
+         Coordinate.timing(newRegion, 500).start();
+      }
       dispatch({
          type: ASSIGN_LOCATION,
-         payload: { longitude, latitude, longitudeDelta, latitudeDelta },
+         payload: newRegion,
       });
    };
 
-   if (!region.hasOwnProperty('latitude')) {
+   if (!initialRegion.hasOwnProperty('latitude')) {
       return (
          <View style={styles.loaderContainer}>
-            <ActivityIndicator size={'large'} animating color={'#529EFE'} />
+            <ActivityIndicator size={'large'} animating color={'#000'} />
 
             <Text style={{ color: '#444' }}>Getting your location</Text>
          </View>
@@ -61,18 +83,35 @@ const Home = ({ navigation }) => {
             <View style={styles.mapStyle}>
                <MapView
                   style={{ flex: 1 }}
+                  showUserLocation
+                  followUserLocation
+                  loadingEnabled
                   showsUserLocation={true}
-                  initialRegion={region}>
-                  <Marker coordinate={{ longitude, latitude }} />
+                  region={initialRegion}>
+                  {searchedStartRegion.hasOwnProperty('latitude') &&
+                     searchedEndRegion.hasOwnProperty('latitude') && (
+                        <Polyline
+                           coordinates={[
+                              searchedStartRegion,
+                              searchedEndRegion,
+                           ]}
+                           strokeColor={'#bf8220'}
+                           strokeWidth={5}
+                        />
+                     )}
+                  <Marker.Animated coordinate={Coordinate} ref={markerRef} />
                </MapView>
             </View>
+
             <View style={styles.inputsContainer}>
                <SearchInput
                   placeholder={'Where are you ?'}
                   showLeftIcon
                   leftIconName="source-commit-start-next-local"
                   inputProps={{
-                     onFocus: () => navigation.navigate('Search'),
+                     value: searchedStartRegion.name,
+                     onFocus: () =>
+                        navigation.navigate('Search', { startLocation: true }),
                   }}
                />
                <SearchInput
@@ -80,7 +119,11 @@ const Home = ({ navigation }) => {
                   showLeftIcon
                   leftIconName="map-marker"
                   inputProps={{
-                     onFocus: () => navigation.navigate('Search'),
+                     value: searchedEndRegion.name,
+                     onFocus: () =>
+                        navigation.navigate('Search', {
+                           endLocation: true,
+                        }),
                   }}
                />
             </View>
@@ -106,6 +149,7 @@ const styles = StyleSheet.create({
    mapStyle: {
       width: '100%',
       height: '100%',
+      ...StyleSheet.absoluteFillObject,
    },
 });
 
