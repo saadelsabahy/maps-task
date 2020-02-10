@@ -1,5 +1,4 @@
 import React, { useReducer } from 'react';
-import { AnimatedRegion } from 'react-native-maps';
 
 export const Store = React.createContext();
 
